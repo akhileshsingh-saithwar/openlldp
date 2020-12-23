@@ -216,7 +216,7 @@ int oper_add_device(char *device_name)
 	LIST_FOREACH(agent, &port->agent_head, entry) {
 		LLDPAD_DBG("%s: calling ifup for agent %p.\n",
 			   __func__, agent);
-		LIST_FOREACH(np, &lldp_mod_head, lldp) {
+		LIST_FOREACH(np, &lldp_head, lldp) {
 			if (np->ops->lldp_mod_ifup)
 				np->ops->lldp_mod_ifup(device_name, agent);
 		}
@@ -283,7 +283,7 @@ static void event_if_decode_nlmsg(int route_type, void *data, int len)
 			LIST_FOREACH(agent, &port->agent_head, entry) {
 				LLDPAD_DBG("%s: calling ifdown for agent %p.\n",
 					   __func__, agent);
-				LIST_FOREACH(np, &lldp_mod_head, lldp) {
+				LIST_FOREACH(np, &lldp_head, lldp) {
 					ops = np->ops;
 					if (ops->lldp_mod_ifdown)
 						ops->lldp_mod_ifdown(device_name,
@@ -418,8 +418,7 @@ event_iface_receive(int sock, UNUSED void *eloop_ctx, UNUSED void *sock_ctx)
 int event_iface_init()
 {
 	int fd;
-	int rcv_size = 0;
-	socklen_t rcv_len = sizeof(int);
+	int rcv_size = MAX_PAYLOAD;
 	struct sockaddr_nl snl;
 
 	fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
@@ -427,17 +426,9 @@ int event_iface_init()
 	if (fd < 0)
 		return fd;
 
-	/* is receive buffer size too small? */
-	if (getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcv_size, &rcv_len) < 0) {
+	if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcv_size, sizeof(int)) < 0) {
 		close(fd);
 		return -EIO;
-	}
-	if (rcv_size < MIN_RCVBUF_SIZE) {
-		rcv_size = MIN_RCVBUF_SIZE >> 1;	/* we get back 2x what we set */
-		if (setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &rcv_size, rcv_len) < 0) {
-			close(fd);
-			return -EIO;
-		}
 	}
 
 	memset((void *)&snl, 0, sizeof(struct sockaddr_nl));

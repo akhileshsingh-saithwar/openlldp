@@ -45,9 +45,16 @@ struct clif_data {
 	struct ctrl_dst *ctrl_dst;
 };
 
+struct client_data {
+	int ctrl_sock;
+};
+
 int ctrl_iface_init(struct clif_data *clifd);
+int client_iface_init(struct client_data *Clientfd);
 int ctrl_iface_register(struct clif_data *clifd);
+int client_iface_register(struct client_data *Clientfd);
 void ctrl_iface_deinit(struct clif_data *clifd);
+void client_iface_deinit(struct client_data *clientfd);
 void ctrl_iface_send(struct clif_data *clifd, int level, u32 moduleid,
 		     char *buf, size_t len);
 
@@ -71,6 +78,26 @@ int clif_iface_ping(struct clif_data *clifd,
 		    socklen_t fromlen,
 		    char *ibuf, int ilen,
 		    char *rbuf, int rlen);
+int clif_iface_addport(struct clif_data *clifd,
+            struct sockaddr_un *from,
+            socklen_t fromlen,
+            char *ibuf, int ilen,
+            char *rbuf, int rlen);
+int clif_iface_txinterval(struct clif_data *clifd,
+        struct sockaddr_un *from,
+        socklen_t fromlen,
+        char *ibuf, int ilen,
+        char *rbuf, int rlen);
+int clif_iface_removeport(struct clif_data *clifd,
+            struct sockaddr_un *from,
+            socklen_t fromlen,
+            char *ibuf, int ilen,
+            char *rbuf, int rlen);
+int clif_clear_counters(struct clif_data *clifd,
+            struct sockaddr_un *from,
+            socklen_t fromlen,
+            char *ibuf, int ilen,
+            char *rbuf, int rlen);
 int clif_iface_cmd_unknown(struct clif_data *clifd,
 			   struct sockaddr_un *from,
 			   socklen_t fromlen,

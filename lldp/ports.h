@@ -59,6 +59,11 @@
 
 #define DORMANT_DELAY	15
 
+#define MAX_CUSTOM_PORT 32
+#define CUSTOM_INDEX_BASE 100
+
+#define MAX_NEIGHBORS 16
+
 struct porttimers {
 	u16 dormantDelay;
 };
@@ -88,7 +93,13 @@ struct port {
 
 	LIST_HEAD(agent_head, lldp_agent) agent_head;
 	struct l2_packet_data *l2;
+    char ifname[IFNAMSIZ];
+	u8 isCustom;
+};
+
+struct customIndexRecord {
 	char ifname[IFNAMSIZ];
+	int ifindex;
 };
 
 extern struct port *porthead;
@@ -96,19 +107,26 @@ extern struct port *porthead;
 #ifdef __cplusplus
 extern "C" {
 #endif
+struct port *add_l3_port(const char *);
 struct port *add_port(int ifindex, const char *);
 int remove_port(const char *);
+int remove_l3_port(const char *);
 #ifdef __cplusplus
 }
 #endif
 int set_port_hw_resetting(const char *ifname, int resetting);
 int get_port_hw_resetting(const char *ifname);
 void set_lldp_port_enable(const char *ifname, int enable);
+void set_lldp_port_l3_enable(const char *ifname, int enable);
 
 int get_local_tlvs(char *ifname, int type, unsigned char *tlvs, int *size);
 int get_neighbor_tlvs(char *ifname, int type, unsigned char *tlvs, int *size);
 
 int port_needs_shutdown(struct port *port);
+
+int is_custom_port(const char *ifname);
+int get_custom_ifindex(const char *ifname);
+int set_custom_ifindex(const char *ifname);
 
 void set_port_operstate(const char *ifname, int operstate);
 int get_port_operstate(const char *ifname);
@@ -124,6 +142,16 @@ static inline struct port *port_find_by_ifindex(int ifindex)
 
 	for (port = porthead; port; port = port->next)
 		if (ifindex == port->ifindex)
+			return port;
+	return NULL;
+}
+
+static inline struct port *port_find_by_ifname(const char *ifname)
+{
+	struct port *port = porthead;
+
+	for (port = porthead; port; port = port->next)
+		if (strcmp(ifname, port->ifname) == 0)
 			return port;
 	return NULL;
 }

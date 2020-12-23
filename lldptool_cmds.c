@@ -27,7 +27,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
-#include <sys/types.h>
+#include <endian.h>
+#include <stdint.h>
 #include "clif.h"
 #include "dcb_types.h"
 #include "lldptool.h"
@@ -215,6 +216,8 @@ int cli_cmd_settlv(struct clif *clif, int argc, char *argv[],
 		cmd->ops |= (op_arg | op_argval);
 
 	render_cmd(cmd, argc, args, argvals);
+
+	printf("\n---%s-------\n", cmd->obuf);
 	free(args);
 	free(argvals);
 	return clif_command(clif, cmd->obuf, raw);
@@ -301,6 +304,16 @@ int cli_cmd_setlldp(struct clif *clif, int argc, char *argv[],
 	if (numargs)
 		cmd->ops |= (op_arg | op_argval);
 
+    int a =  op_arg | op_argval ;
+    printf("LOG : cmd %d ops %d tlvid %d module_id %d ifname %s type %d a %d \n", cmd->cmd, cmd->ops, cmd->tlvid, cmd->module_id, cmd->ifname, cmd->type, a);
+    printf("LOG : argc : %d \n", argc);
+    for(i=0;i<numargs;i++)
+    {
+        if(args[i]!= NULL)
+            printf("LOG :args[%d]  %s\n", i, args[i]);
+        if(argvals[i]!= NULL)
+            printf("LOG :argvals[%d] %s\n", i, argvals[i]);
+    }
 	render_cmd(cmd, argc, args, argvals);
 	free(args);
 	free(argvals);
@@ -461,11 +474,14 @@ static void print_tlvs(struct cmd *cmd, char *ibuf)
 
 		tlvid = get_tlvid(tlv_type, ibuf+offset);
 
+		if(tlvid == 1)
+			printf("==========================================\n");
+
 		if (tlvid > INVALID_TLVID)
 			offset += 8;
 		
 		printed = 0;
-		LIST_FOREACH(np, &lldp_mod_head, lldp) {
+		LIST_FOREACH(np, &lldp_head, lldp) {
 			if (np->ops->print_tlv(tlvid, tlv_len, ibuf+offset)) {
 					printed = 1;
 					break;
@@ -491,8 +507,6 @@ static void print_tlvs(struct cmd *cmd, char *ibuf)
 			offset += 2*tlv_len;
 		ilen -= 2*tlv_len;
 
-		if (tlvid == END_OF_LLDPDU_TLV)
-			break;
 	}
 }
 
@@ -500,22 +514,33 @@ static void print_port_stats(char *ibuf)
 {
 	static char *stat_names[] = {
 		"Total Frames Transmitted       ",
+        "Total Error Frames Transmitted ",
 		"Total Discarded Frames Received",
 		"Total Error Frames Received    ",
 		"Total Frames Received          ",
 		"Total Discarded TLVs           ",
 		"Total Unrecognized TLVs        ",
 		"Total Ageouts                  ",
+        "Total tlv Accepted             ",
+		"Last Clear                     ",
 		"" };
 	int i;
 	int offset = 0;
 	u32 value;
+	s64 lvalue;
 
 	for(i = 0; strlen(stat_names[i]); i++) {
-		hexstr2bin(ibuf+offset, (u8 *)&value, sizeof(value));
-		value = ntohl(value);
-		printf("%s = %u\n", stat_names[i], value);
-		offset += 8;
+        if(i < 9)
+		{
+			hexstr2bin(ibuf+offset, (u8 *)&value, sizeof(value));
+			value = ntohl(value);
+			printf("%s = %u\n", stat_names[i], value);
+			offset += 8;
+		}
+        else if(i == 9)
+		{
+			printf("%s = %s\n", stat_names[i], ibuf+offset);
+		}
 	}
 }
 
@@ -588,7 +613,25 @@ void print_response(char *buf, int status)
 		else
 			printf("OK\n");
 		break;
-	case CMD_REQUEST:
+    case ADDPORT_CMD:
+        if (status)
+            printf("FAILED:%s\n", print_status(status));
+        else
+            printf("%s\n", buf+CLIF_RSP_OFF+1);
+        break;
+    case REMOVEPORT_CMD:
+        if (status)
+            printf("FAILED:%s\n", print_status(status));
+        else
+            printf("%s\n", buf+CLIF_RSP_OFF+1);
+        break;
+    case CLEARCOUNTERS_CMD:
+        if (status)
+            printf("FAILED:%s\n", print_status(status));
+        else
+            printf("%s\n", buf+CLIF_RSP_OFF+1);
+        break;
+    case CMD_REQUEST:
 		print_cmd_response(buf+CLIF_RSP_OFF, status);
 		break;
 	default:

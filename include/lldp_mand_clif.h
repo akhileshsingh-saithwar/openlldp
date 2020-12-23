@@ -44,6 +44,9 @@ typedef enum {
 	cmd_version,
 	cmd_help,
 	cmd_ping,
+    cmd_addport,
+    cmd_removeport,
+    cmd_clearcounters,
 	cmd_nop,
 } lldp_cmd;
 

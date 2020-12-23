@@ -106,9 +106,11 @@ int l2_packet_get_own_addr(struct l2_packet_data *l2, u8 *addr)
 int l2_packet_send(struct l2_packet_data *l2, const u8 *dst_addr, u16 proto,
 		   const u8 *buf, size_t len)
 {
-	int ret;
+    int ret;
 	if (l2 == NULL)
 		return -1;
+
+    LLDPAD_DBG("%s: sending frame on fd %d for interface %s \n", __func__, l2->fd,l2->ifname);
 
 	if (l2->l2_hdr) {
 		ret = send(l2->fd, buf, len, 0);
@@ -154,6 +156,87 @@ static void l2_packet_receive(int sock, void *eloop_ctx, UNUSED void *sock_ctx)
 	l2->rx_callback(l2->rx_callback_ctx, ll.sll_ifindex, buf, res);
 }
 
+struct l2_packet_data * l2_custom_packet_init(
+        const char *ifname, UNUSED const u8 *own_addr, unsigned short protocol,
+        void (*rx_callback)(void *ctx, int ifindex,const u8 *buf, size_t len),
+        void *rx_callback_ctx, int l2_hdr)
+{
+	struct l2_packet_data *l2;
+    struct sockaddr_ll ll;
+
+	l2 = malloc(sizeof(struct l2_packet_data));
+	if (l2 == NULL)
+		return NULL;
+	memset(l2, 0, sizeof(*l2));
+    LLDPAD_DBG("%s: Initializing new port for %s.\n", __func__, ifname);
+	STRNCPY_TERMINATED(l2->ifname, ifname, sizeof(l2->ifname));
+    l2->rx_callback = rx_callback;
+    l2->rx_callback_ctx = rx_callback_ctx;
+    l2->l2_hdr = l2_hdr;
+
+    l2->fd = socket(PF_PACKET, l2_hdr ? SOCK_RAW : SOCK_DGRAM,
+            htons(protocol));
+
+    if (l2->fd < 0) {
+        perror("socket(PF_PACKET)");
+        free(l2);
+        return NULL;
+    }
+#if 0
+    //STRNCPY_TERMINATED(ifr.ifr_name, l2->ifname, sizeof(ifr.ifr_name));
+    if (ioctl(l2->fd, SIOCGIFINDEX, &ifr) < 0) {
+        perror("ioctl[SIOCGIFINDEX]");
+        close(l2->fd);
+        free(l2);
+        return NULL;
+    }
+
+    //l2->ifindex = rx_callback_ctx->ifindex;
+
+    memset(&ll, 0, sizeof(ll));
+    ll.sll_family = PF_PACKET;
+    ll.sll_ifindex = rx_callback_ctx->ifindex; //   ifr.ifr_ifindex;
+    ll.sll_protocol = htons(protocol);
+    if (bind(l2->fd, (struct sockaddr *) &ll, sizeof(ll)) < 0) {
+        perror("bind[PF_PACKET]");
+        close(l2->fd);
+        free(l2);
+        return NULL;
+    }
+
+    /* current hw address */
+    if (ioctl(l2->fd, SIOCGIFHWADDR, &ifr) < 0) {
+        perror("ioctl[SIOCGIFHWADDR]");
+        close(l2->fd);
+        free(l2);
+        return NULL;
+    }
+    memcpy(l2->curr_mac_addr, ifr.ifr_hwaddr.sa_data, ETH_ALEN);
+
+    if (get_perm_hwaddr(ifname, l2->perm_mac_addr, l2->san_mac_addr) != 0) {
+        memcpy(l2->perm_mac_addr, ifr.ifr_hwaddr.sa_data, ETH_ALEN);
+        memset(l2->san_mac_addr, 0xff, ETH_ALEN);
+    }
+    LLDPAD_DBG("%s mac:" MACSTR " perm:" MACSTR " san:" MACSTR "\n",
+           ifname, MAC2STR(l2->curr_mac_addr),
+           MAC2STR(l2->perm_mac_addr), MAC2STR(l2->san_mac_addr));
+
+    struct packet_mreq mr;
+    memset(&mr, 0, sizeof(mr));
+    mr.mr_ifindex = l2->ifindex;
+    mr.mr_alen = ETH_ALEN;
+    memcpy(mr.mr_address, &nearest_bridge, ETH_ALEN);
+    mr.mr_type = PACKET_MR_MULTICAST;
+    if (setsockopt(l2->fd, SOL_PACKET, PACKET_ADD_MEMBERSHIP, &mr,
+        sizeof(mr)) < 0) {
+        perror("setsockopt nearest_bridge");
+        close(l2->fd);
+        free(l2);
+        return NULL;
+    }
+#endif
+	return l2;
+}
 
 struct l2_packet_data * l2_packet_init(
 	const char *ifname, UNUSED const u8 *own_addr, unsigned short protocol,
@@ -282,5 +365,18 @@ void l2_packet_deinit(struct l2_packet_data *l2)
 		close(l2->fd);
 	}
 		
+	free(l2);
+}
+
+void l2_custom_packet_deinit(struct l2_packet_data *l2)
+{
+	if (l2 == NULL)
+		return;
+
+    if (l2->fd >= 0) {
+        //eloop_unregister_read_sock(l2->fd);
+        close(l2->fd);
+    }
+
 	free(l2);
 }

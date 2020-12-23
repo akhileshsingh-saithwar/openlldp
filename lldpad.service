@@ -4,9 +4,11 @@ After=syslog.target network.target
 Requires=lldpad.socket
 
 [Service]
-Type=simple
+Type=forking
 Restart=always
-ExecStart=/usr/sbin/lldpad -t
+StartLimitBurst=3
+StartLimitInterval=20
+ExecStart=/usr/sbin/lldpad -d -t -V 7
 ExecReload=/bin/kill -HUP $MAINPID
 
 [Install]

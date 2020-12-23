@@ -58,11 +58,12 @@
  */
 struct l2_packet_data;
 
-STRUCT_PACKED(struct l2_ethhdr {
+
+struct l2_ethhdr {
 	u8 h_dest[ETH_ALEN];
 	u8 h_source[ETH_ALEN];
 	u16 h_proto;
-});
+} STRUCT_PACKED;
 
 /**
  * l2_packet_init - Initialize l2_packet interface
@@ -87,11 +88,19 @@ struct l2_packet_data *l2_packet_init(
 			    const u8 *buf, size_t len),
 	void *rx_callback_ctx, int l2_hdr);
 
+struct l2_packet_data *l2_custom_packet_init(
+    const char *ifname, const u8 *own_addr, unsigned short protocol,
+    void (*rx_callback)(void *ctx, int ifindex,
+                const u8 *buf, size_t len),
+    void *rx_callback_ctx, int l2_hdr);
+
 /**
  * l2_packet_deinit - Deinitialize l2_packet interface
  * @l2: Pointer to internal l2_packet data from l2_packet_init()
  */
 void l2_packet_deinit(struct l2_packet_data *l2);
+
+void l2_custom_packet_deinit(struct l2_packet_data *l2);
 
 /**
  * l2_packet_get_own_src_addr - Get own src layer 2 address

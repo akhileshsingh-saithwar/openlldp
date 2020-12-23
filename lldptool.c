@@ -64,9 +64,6 @@
 #include "lldp_util.h"
 #include "lldpad_status.h"
 
-struct lldp_head lldp_cli_head;
-struct lldp_head lldp_mod_head;
-extern void close_history(void);
 static int show_raw;
 
 static const char *cli_version =
@@ -161,6 +158,7 @@ static const char *commands_help =
 "  -h|help                              show command usage information\n"
 "  -v|version                           show version\n"
 "  -p|ping                              ping lldpad and query pid of lldpad\n"
+"  -N|addport                           add port lldpad\n"
 "  -q|quit                              exit lldptool (interactive mode)\n"
 "  -S|stats                             get LLDP statistics for ifname\n"
 "  -t|get-tlv                           get TLVs from ifname\n"
@@ -202,7 +200,7 @@ static void init_modules(void)
 		if (premod)
 			LIST_INSERT_AFTER(premod, module, lldp);
 		else
-			LIST_INSERT_HEAD(&lldp_mod_head, module, lldp);
+			LIST_INSERT_HEAD(&lldp_head, module, lldp);
 		premod = module;
 	}
 }
@@ -211,9 +209,9 @@ void deinit_modules(void)
 {
 	struct lldp_module *module;
 
-	while (lldp_mod_head.lh_first != NULL) {
-		module = lldp_mod_head.lh_first;
-		LIST_REMOVE(lldp_mod_head.lh_first, lldp);
+	while (lldp_head.lh_first != NULL) {
+		module = lldp_head.lh_first;
+		LIST_REMOVE(lldp_head.lh_first, lldp);
 		module->ops->lldp_mod_unregister(module);
 	}
 }
@@ -330,7 +328,59 @@ inline int clif_command(struct clif *clif, char *cmd, int raw)
 static int cli_cmd_ping(struct clif *clif, UNUSED int argc, UNUSED char *argv[],
 			UNUSED struct cmd *command, int raw)
 {
+    printf("ping \n");
 	return clif_command(clif, "P", raw);
+}
+
+static int cli_cmd_addport(struct clif *clif, UNUSED int argc, UNUSED char *argv[],
+            struct cmd *cmd, int raw)
+{
+    printf("cli_cmd_addport enter \n");
+
+    int len;
+
+    len = sizeof(cmd->obuf);
+
+    snprintf(cmd->obuf, len, "%c%s",
+        ADDPORT_CMD,cmd->ifname);
+
+    printf("cmd->obuf %s\n",cmd->obuf);
+
+    return clif_command(clif, cmd->obuf, raw);
+}
+
+static int cli_cmd_removeport(struct clif *clif, UNUSED int argc, UNUSED char *argv[],
+            struct cmd *cmd, int raw)
+{
+    printf("cli_cmd_removeport enter \n");
+
+    int len;
+
+    len = sizeof(cmd->obuf);
+
+    snprintf(cmd->obuf, len, "%c%s",
+        REMOVEPORT_CMD,cmd->ifname);
+
+    printf("cmd->obuf %s\n",cmd->obuf);
+
+    return clif_command(clif, cmd->obuf, raw);
+}
+
+static int cli_cmd_clearcounters(struct clif *clif, UNUSED int argc, UNUSED char *argv[],
+            struct cmd *cmd, int raw)
+{
+    printf("cli_cmd_clearCounters enter \n");
+
+    int len;
+
+    len = sizeof(cmd->obuf);
+
+    snprintf(cmd->obuf, len, "%c%s",
+        CLEARCOUNTERS_CMD,cmd->ifname);
+
+    printf("cmd->obuf %s\n",cmd->obuf);
+
+    return clif_command(clif, cmd->obuf, raw);
 }
 
 static int
@@ -349,7 +399,7 @@ cli_cmd_help(UNUSED struct clif *clif, UNUSED int argc, UNUSED char *argv[],
 	printf("%s\n%s\n%s", commands_usage, commands_options, commands_help);
 
 	printf("\nTLV identifiers:\n");
-	LIST_FOREACH(np, &lldp_mod_head, lldp)
+	LIST_FOREACH(np, &lldp_head, lldp)
 		if (np->ops->print_help)
 			np->ops->print_help();
 	return 0;
@@ -388,6 +438,9 @@ struct cli_cmd {
 
 static struct cli_cmd cli_commands[] = {
 	{ cmd_ping,     "ping",      cli_cmd_ping },
+    { cmd_addport,  "add-port",  cli_cmd_addport },
+    { cmd_removeport,  "remove-port",  cli_cmd_removeport },
+    { cmd_clearcounters,  "clear-counters",  cli_cmd_clearcounters },
 	{ cmd_help,     "help",      cli_cmd_help },
 	{ cmd_license,  "license",   cli_cmd_license },
 	{ cmd_version,  "version",   cli_cmd_version },
@@ -409,7 +462,7 @@ u32 lookup_tlvid(char *tlvid_str)
 	struct lldp_module *np;
 	u32 tlvid = INVALID_TLVID;
 
-	LIST_FOREACH(np, &lldp_mod_head, lldp) {
+	LIST_FOREACH(np, &lldp_head, lldp) {
 		if (np->ops->lookup_tlv_name) {
 			tlvid = np->ops->lookup_tlv_name(tlvid_str);
 			if (tlvid != INVALID_TLVID)
@@ -436,6 +489,9 @@ static struct option lldptool_opts[] = {
 	{"set-tlv", 0, NULL, 'T'},
 	{"get-lldp", 0, NULL, 'l'},
 	{"set-lldp", 0, NULL, 'L'},
+    {"add-port", 0, NULL, 'N'},
+    {"remove-port", 0, NULL, 'X'},
+    {"clearcounters", 0, NULL, 'Q'},
 	{0, 0, 0, 0}
 };
 
@@ -460,7 +516,7 @@ static int request(struct clif *clif, int argc, char *argv[])
 
 	opterr = 0;
 	for (;;) {
-		c = getopt_long(argc, argv, "Si:tTlLhcdnvrRpqV:g:",
+        c = getopt_long(argc, argv, "Si:tTlLNXQhcdnvrRpqV:g:",
 				lldptool_opts, &option_index);
 		if (c < 0)
 			break;
@@ -519,7 +575,10 @@ static int request(struct clif *clif, int argc, char *argv[])
 			}
 			break;
 		case 'p':
+        {
+            printf("ping option execute\n");
 			command.cmd = cmd_ping;
+        }
 			break;
 		case 'q':
 			command.cmd = cmd_quit;
@@ -536,7 +595,19 @@ static int request(struct clif *clif, int argc, char *argv[])
 		case 'L':
 			command.cmd = cmd_set_lldp;
 			break;
-		case 'c':
+        case 'N':
+            printf("add port option execute\n");
+            command.cmd = cmd_addport;
+            break;
+        case 'X':
+            printf("remove port option execute\n");
+            command.cmd = cmd_removeport;
+            break;
+        case 'Q':
+            printf("clear counters option execute\n");
+            command.cmd = cmd_clearcounters;
+            break;
+        case 'c':
 			command.ops |= op_config;
 			break;
 		case 'd':
@@ -692,7 +763,6 @@ static void cli_interactive()
 		}
 		free(cmd);
 	} while (!cli_quit);
-	close_history();
 }
 
 static void cli_terminate(UNUSED int sig)

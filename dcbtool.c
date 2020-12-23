@@ -47,7 +47,6 @@
 #define UNUSED __attribute__((__unused__))
 
 static int show_raw;
-extern void close_history(void);
 
 static const char *cli_version =
 "dcbtool v" DCBTOOL_VERSION "\n"
@@ -461,7 +460,6 @@ static void cli_interactive(int raw)
 			request(clif_conn, argc, argv, raw);
 		free(cmd);
 	} while (!cli_quit);
-	close_history();
 }
 
 static void cli_terminate(UNUSED int sig)

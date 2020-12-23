@@ -96,7 +96,7 @@ struct lldp_module {
 };
 
 LIST_HEAD(lldp_head, lldp_module);
-extern struct lldp_head lldp_mod_head;
+struct lldp_head lldp_head;
 
 static inline struct lldp_module *find_module_by_id(struct lldp_head *head, int id)
 {

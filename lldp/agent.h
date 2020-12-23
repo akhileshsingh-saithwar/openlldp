@@ -29,6 +29,7 @@
 
 #include "lldp.h"
 #include "mibdata.h"
+#include "lldp_tlv.h"
 
 #ifndef ETH_ALEN
 #define ETH_ALEN    6
@@ -67,8 +68,6 @@ struct agenttimers {
 	bool txTick;
 /* Rx */
 	u16 tooManyNghbrsTimer;
-	u16 rxTTL;
-	u16 lastrxTTL;  /* cache last received */
 };
 
 struct agenttx {
@@ -86,6 +85,7 @@ struct agenttx {
 struct agentstats {
 /* Tx */
 	u32 statsFramesOutTotal;
+    u32 statsFramesOutErrorsTotal;
 /* Rx */
 	u32 statsAgeoutsTotal;
 	u32 statsFramesDiscardedTotal;
@@ -93,6 +93,8 @@ struct agentstats {
 	u32 statsFramesInTotal;
 	u32 statsTLVsDiscardedTotal;
 	u32 statsTLVsUnrecognizedTotal;
+    u32 statsTLVsAccepted;
+	char statsLastclear[27];
 };
 
 typedef struct rxmanifest{
@@ -106,6 +108,17 @@ typedef struct rxmanifest{
 	struct unpacked_tlv *mgmtadd;
 } rxmanifest;
 
+typedef struct previousTlvs{
+	struct unpacked_tlv *chassis;
+	struct unpacked_tlv *portid;
+	struct unpacked_tlv *ttl;
+	struct unpacked_tlv *portdesc;
+	struct unpacked_tlv *sysname;
+	struct unpacked_tlv *sysdesc;
+	struct unpacked_tlv *syscap;
+	struct unpacked_tlv *mgmtadd;
+}previousTlvs;
+
 struct agentrx {
 	u8 *framein;
 	u16 sizein;
@@ -117,6 +130,7 @@ struct agentrx {
 	u8 tooManyNghbrs;
 	u8 dupTlvs;
 	u8 dcbx_st;
+	u8 srcMac[ETH_ALEN];
 	bool newNeighbor;
 	rxmanifest *manifest;
 };
@@ -126,6 +140,21 @@ enum agentAdminStatus {
 	enabledTxOnly,
 	enabledRxOnly,
 	enabledRxTx,
+};
+
+struct neighbor{
+	u8	mac_addr[ETH_ALEN];
+	u16  neighborId;
+	u16 len;
+	u16 rxTTL;
+	u16 lastrxTTL;  /* cache last received */
+	u8  tlvs[2048];
+	char ifname[IFNAMSIZ];
+	bool tlvs_presence[12];
+	previousTlvs oldtlvs;
+	u64 age;
+	s64 lastUpdate;
+	struct neighbor *next;
 };
 
 /* lldp agent specific structure as in chapter 9.2.5
@@ -147,11 +176,16 @@ struct lldp_agent {
 
 	enum	agent_type type;
 
-        LIST_ENTRY(lldp_agent) entry;
+	u16 neighborCount;
+	struct neighbor *neighborhead;
+
+	LIST_ENTRY(lldp_agent) entry;
 };
 
 struct lldp_agent *lldp_agent_find_by_type(const char *, enum agent_type);
+struct neighbor *neighbor_find_by_mac(struct lldp_agent *agent, u8 *mac);
 int lldp_add_agent(const char *ifname, enum agent_type);
+int lldp_add_l3_agent(const char *ifname, enum agent_type);
 
 void set_lldp_agent_admin(const char *ifname, int type, int enable);
 int get_lldp_agent_admin(const char *ifname, int type);
@@ -162,5 +196,6 @@ const char *agent_type2section(int agenttype);
 int start_lldp_agents(void);
 void stop_lldp_agents(void);
 void clean_lldp_agents(void);
+void agent_get_systime_yangfmt(char *);
 
 #endif /* AGENT_H */

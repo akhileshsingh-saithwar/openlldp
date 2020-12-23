@@ -68,6 +68,15 @@ void config_ifkey(const char *name, char *ifkey) {
 	
 	if(index)
 		sprintf(ifkey, "if%d", index);
+	else
+	{
+		if(is_custom_port(name))
+		{
+			index = get_custom_ifindex(name);
+			if(index)
+				sprintf(ifkey, "if%d", index);
+		}
+	}
 }
 
 /*
@@ -149,7 +158,7 @@ void scan_port(UNUSED void *eloop_data, UNUSED void *user_ctx)
 			}
 		}
 		next = port->next;
-		if (!found)
+		if (!is_custom_port(port->ifname) && !found)
 			remove_port(port->ifname);
 	}
 
@@ -185,7 +194,7 @@ void scan_port(UNUSED void *eloop_data, UNUSED void *user_ctx)
 		LIST_FOREACH(agent, &port->agent_head, entry) {
 			LLDPAD_DBG("%s: calling ifdown for agent %p.\n",
 				   __func__, agent);
-			LIST_FOREACH(np, &lldp_mod_head, lldp) {
+			LIST_FOREACH(np, &lldp_head, lldp) {
 				ops = np->ops;
 				if (ops->lldp_mod_ifdown)
 					ops->lldp_mod_ifdown(ifname, agent);
@@ -234,7 +243,7 @@ int check_cfg_file(void)
 			}
 		} else {
 			retval = errno;
-			LLDPAD_ERR("%s is not readable and writeable\n",
+			LLDPAD_ERR("%s is not readable and writeable",
 				cfg_file_name);
 		}
 	}
@@ -310,7 +319,7 @@ int get_int_config(config_setting_t *s, char *attr, int int_type,
 	}
 
 	if (!rval)
-		LLDPAD_ERR("invalid value for %s\n", attr);
+		LLDPAD_ERR("invalid value for %s", attr);
 
 	return rval;
 }
@@ -354,7 +363,7 @@ int get_array_config(config_setting_t *s, char *attr, int int_type,
 	}
 
 	if (!rval)
-		LLDPAD_ERR("invalid setting for %s\n", attr);
+		LLDPAD_ERR("invalid setting for %s", attr);
 
 	return rval;
 }
@@ -394,7 +403,7 @@ void init_ports(void)
 		LIST_FOREACH(agent, &port->agent_head, entry) {
 			LLDPAD_DBG("%s: calling ifup for agent %p.\n",
 				   __func__, agent);
-			LIST_FOREACH(np, &lldp_mod_head, lldp) {
+			LIST_FOREACH(np, &lldp_head, lldp) {
 				if (np->ops->lldp_mod_ifup)
 					np->ops->lldp_mod_ifup(p->if_name, agent);
 			}
@@ -591,7 +600,7 @@ int set_config_setting(const char *ifname, int agenttype, char *path,
 	int rval = cmd_success;
 	const char *section = agent_type2section(agenttype);
 
-	LLDPAD_DBG("%s(%i): \n", __func__, __LINE__);
+	LLDPAD_DBG("%s(%i): agentType:%d\n", __func__, __LINE__, agenttype);
 
 	if (strlen(ifname)){
 		config_ifkey(ifname, ifkey);
@@ -605,9 +614,10 @@ int set_config_setting(const char *ifname, int agenttype, char *path,
 
 	if (setting) {
 		if (!set_config_value(setting, v, type)) {
+			LLDPAD_DBG("set_config_value failed\n");
 			rval = cmd_failed;
 		} else if (!config_write_file(&lldpad_cfg, cfg_file_name)) {
-			LLDPAD_DBG("config write failed\n");
+			LLDPAD_DBG("config_write_file failed\n");
 			rval = cmd_failed;
 		}
 	}

@@ -466,7 +466,7 @@ int handle_get_args(struct cmd *cmd, UNUSED char *arg, char *argvalue,
 	nbuf = obuf;
 	nbuf_len = obuf_len;
 
-	LIST_FOREACH(np, &lldp_mod_head, lldp) {
+	LIST_FOREACH(np, &lldp_head, lldp) {
 		if (!np->ops->get_arg_handler)
 			continue;
 		if (!(ah = np->ops->get_arg_handler()))
@@ -496,7 +496,7 @@ int handle_get_arg(struct cmd *cmd, char *arg, char *argvalue,
 	struct arg_handlers *ah;
 	int rval, status = cmd_not_applicable;
 
-	LIST_FOREACH(np, &lldp_mod_head, lldp) {
+	LIST_FOREACH(np, &lldp_head, lldp) {
 		if (!np->ops->get_arg_handler)
 			continue;
 		if (!(ah = np->ops->get_arg_handler()))
@@ -593,7 +593,7 @@ int handle_test_arg(struct cmd *cmd, char *arg, char *argvalue,
 	struct arg_handlers *ah;
 	int rval, status = cmd_not_applicable;
 
-	LIST_FOREACH(np, &lldp_mod_head, lldp) {
+	LIST_FOREACH(np, &lldp_head, lldp) {
 		if (!np->ops->get_arg_handler)
 			continue;
 		if (!(ah = np->ops->get_arg_handler()))
@@ -626,7 +626,7 @@ int handle_set_arg(struct cmd *cmd, char *arg, char *argvalue,
 	struct arg_handlers *ah;
 	int rval, status = cmd_not_applicable;
 
-	LIST_FOREACH(np, &lldp_mod_head, lldp) {
+	LIST_FOREACH(np, &lldp_head, lldp) {
 		if (!np->ops->get_arg_handler)
 			continue;
 		if (!(ah = np->ops->get_arg_handler()))
@@ -655,7 +655,7 @@ int handle_set_arg(struct cmd *cmd, char *arg, char *argvalue,
 
 int get_tlvs(struct cmd *cmd, char *rbuf, int rlen)
 {
-	u8 tlvs[2048];
+	u8 tlvs[2048 * MAX_NEIGHBORS];
 	int size = 0;
 	int i;
 	u32 tlvid;
@@ -663,6 +663,8 @@ int get_tlvs(struct cmd *cmd, char *rbuf, int rlen)
 	int moff = 0;
 	u16 type, len;
 	int res;
+
+	memset(tlvs, 0, sizeof(tlvs));
 
 	/* VDP 0.2 protocol for nearest customer bridge only */
 	if (cmd->tlvid == (OUI_IEEE_8021Qbg << 8)
@@ -722,7 +724,10 @@ int get_agent_stats(struct cmd *cmd, char *rbuf, int rlen)
 	snprintf(rbuf+offset, rlen - strlen(rbuf),
 		"%08x", stats.statsFramesOutTotal);
 	offset+=8;
-	snprintf(rbuf+offset, rlen - strlen(rbuf),
+    snprintf(rbuf+offset, rlen - strlen(rbuf),
+        "%08x", stats.statsFramesOutErrorsTotal);
+    offset+=8;
+    snprintf(rbuf+offset, rlen - strlen(rbuf),
 		"%08x", stats.statsFramesDiscardedTotal);
 	offset+=8;
 	snprintf(rbuf+offset, rlen - strlen(rbuf),
@@ -739,6 +744,12 @@ int get_agent_stats(struct cmd *cmd, char *rbuf, int rlen)
 	offset+=8;
 	snprintf(rbuf+offset, rlen - strlen(rbuf),
 		"%08x", stats.statsAgeoutsTotal);
+	offset+=8;
+    snprintf(rbuf+offset, rlen - strlen(rbuf),
+        "%08x", stats.statsTLVsAccepted);
+    offset+=8;
+	snprintf(rbuf+offset, rlen - strlen(rbuf),
+		"%s", stats.statsLastclear);
 
 	return cmd_success;
 }
@@ -825,7 +836,7 @@ int mand_clif_cmd(UNUSED void  *data,
 	roff = strlen(rbuf);
 
 	/* Confirm port is a valid LLDP port */
-	if (!get_ifidx(cmd.ifname) || !is_valid_lldp_device(cmd.ifname)) {
+	if (!is_custom_port(cmd.ifname) && (!get_ifidx(cmd.ifname) || !is_valid_lldp_device(cmd.ifname))) {
 		free(argvals);
 		free(args);
 		return cmd_device_not_found;

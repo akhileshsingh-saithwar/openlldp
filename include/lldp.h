@@ -34,6 +34,7 @@ typedef __u8 u8;
 typedef __u16 u16;
 typedef __u32 u32;
 typedef __u64 u64;
+typedef __s64 s64;
 
 #define UNUSED __attribute__((__unused__))
 
@@ -254,12 +255,6 @@ enum {
 #define LLDP_EVB_DEFAULT_SVSI				3295
 #define LLDP_EVB_DEFAULT_RTE				15
 #define LLDP_EVB_DEFAULT_MAX_RTE			31
-
-#ifndef _MSC_VER
-#define STRUCT_PACKED(STRUCT) STRUCT __attribute__((__packed__))
-#else
-#define STRUCT_PACKED(STRUCT) __pragma(pack(push, 1)) STRUCT __pragma(pack(pop))
-#endif
 
 void somethingChangedLocal(const char *ifname, int type);
 #endif /* _LLDP_H */

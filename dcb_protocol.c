@@ -2257,8 +2257,13 @@ cmd_status get_bwg_descrpt(char *device_name, u8 bwgid, char **name)
 
 	if ((it != NULL) &&
 		(bwgid < it->second->max_pgid_desc)) {
-		*name = strdup(it->second->pgid_desc[bwgid]);
-		if (*name == NULL) {
+		size = (int)strlen(it->second->pgid_desc[bwgid]) +
+			sizeof(char);  /* Localization OK */
+		*name = (char*)malloc(size);
+		if (*name != NULL) {
+			strncpy(*name, it->second->pgid_desc[bwgid],
+					size); /* Localization OK */
+		} else {
 			goto Error;
 		}
 	} else {
@@ -2267,9 +2272,9 @@ cmd_status get_bwg_descrpt(char *device_name, u8 bwgid, char **name)
 			size = (int)strlen(
 				attribs.descript.pgid_desc[bwgid]) +
 				sizeof(char);
-			*name = (char*)calloc(size, sizeof(char));
+			*name = (char*)malloc(size);
 			if (*name != NULL) {
-				memcpy(*name, attribs.descript.pgid_desc[bwgid], size - 1); /* Localization OK */
+				memcpy(*name, attribs.descript.pgid_desc[bwgid], size); /* Localization OK */
 			} else {
 				goto Error;
 			}

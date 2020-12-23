@@ -177,8 +177,9 @@ int is_valid_lldp_device(const char *device_name)
 {
 	if (is_loopback(device_name))
 		return 0;
-	if (is_vlan(device_name))
-		return 0;
+    /* To Detect the system Virtual Port (eth,nms,nms1) by lldpad */
+    //if (is_vlan(device_name))
+    //    return 0;
 	if (is_bridge(device_name))
 		return 0;
 	if (is_macvtap(device_name))

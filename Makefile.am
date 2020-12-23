@@ -19,8 +19,8 @@ ACLOCAL_AMFLAGS = -I m4
 parse_cli.o: CFLAGS+=-U_FORTIFY_SOURCE -Wno-error
 
 ## system requires a shared libconfig
-AM_CFLAGS = $(LIBCONFIG_CFLAGS) $(LIBNL_CFLAGS)
-AM_LDFLAGS = $(LIBCONFIG_LIBS) $(LIBNL_LIBS) -lrt
+AM_CFLAGS = -Wall  -Wextra -Wformat=2 $(LIBCONFIG_CFLAGS) $(LIBNL_CFLAGS)
+AM_LDFLAGS = $(LIBCONFIG_LIBS) $(LIBNL_LIBS) -lrt -lpthread
 
 ## header files to be installed, for programs using the client interface to lldpad 
 lldpad_includedir= ${includedir}/lldpad
@@ -56,7 +56,7 @@ event_iface.c eloop.c lldp_dcbx_cmds.c log.c lldpad_shm.c \
 dcb_protocol.c dcb_rule_chk.c  list.c lldp_rtnl.c \
 $(lldpad_include_HEADERS) $(noinst_HEADERS) \
 lldp/ports.c lldp/agent.c lldp/l2_packet_linux.c lldp/tx.c \
-lldp/rx.c lldp/agent.h lldp/l2_packet.h lldp/mibdata.h lldp/ports.h \
+lldp/rx.c lldp/parsetlvs.c lldp/parsetlvs.h lldp/agent.h lldp/l2_packet.h lldp/mibdata.h lldp/ports.h \
 lldp/states.h include/lldp.h include/lldp_mod.h \
 lldp_dcbx.c include/lldp_dcbx.h tlv_dcbx.c include/tlv_dcbx.h \
 lldp_dcbx_cfg.c include/lldp_dcbx_cfg.h lldp_util.c \
@@ -149,14 +149,3 @@ AM_DISTCHECK_CONFIGURE_FLAGS = --enable-debug
 lldp_clif_test_SOURCES = test/lldp_clif_test.c lldp_basman_clif.c lldp_util.c \
 	lldp_rtnl.c
 lldp_clif_test_LDFLAGS = -lrt $(LIBNL_LIBS)
-
-RPMBUILD_TOP = $(abs_top_builddir)/rpm/rpmbuild
-RPMBUILD_OPT ?= --without check
-
-# Build user-space RPMs
-rpm: dist $(srcdir)/lldpad.spec
-	${MKDIR_P} ${RPMBUILD_TOP}/SOURCES
-	cp ${DIST_ARCHIVES} ${RPMBUILD_TOP}/SOURCES
-	rpmbuild ${RPMBUILD_OPT} \
-                 -D "_topdir ${RPMBUILD_TOP}" \
-                 -ba $(srcdir)/lldpad.spec

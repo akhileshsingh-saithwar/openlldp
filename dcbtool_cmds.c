@@ -27,7 +27,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
-#include <sys/types.h>
 #include "clif.h"
 #include "dcbtool.h"
 #include "lldp_dcbx_cmds.h"

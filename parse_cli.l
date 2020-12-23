@@ -494,8 +494,7 @@ gp	{ if (!cmd) {
 					yyless(0);
 					}
 
-<getup2tc>[0-7]			{ up2tc_a[up2tc_idx] = atoi(yytext);
-				up2tc_idx++;
+<getup2tc>[0-7]			{ up2tc_a[up2tc_idx++] = atoi(yytext);
 				if (up2tc_idx == 8) {
 					BEGIN(getpgargs);
 				}

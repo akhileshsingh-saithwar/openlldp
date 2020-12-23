@@ -1,12 +1,9 @@
 language: c
 dist: xenial
-arch:
-    - amd64
-    - ppc64le
 #before_install: sudo apt-get update
 install: sudo apt-get install -y libconfig-dev libnl-3-dev rpm
 before_script: ./bootstrap.sh
-script: ./contrib/build-rpm.sh && ./configure --enable-errors && make && make check && sudo make install
+script: ./contrib/build-rpm.sh && ./configure && make && make test && sudo make install #&& rpmbuild -ba lldpad.spec
 
 matrix:
   include:
@@ -50,12 +47,3 @@ matrix:
             - gcc-9
       env:
         - CC="gcc-9"
-    - addons:
-        apt:
-          sources:
-            - sourceline: 'ppa:ubuntu-toolchain-r/test'
-          packages:
-            - gcc-10
-      env:
-        - CC="gcc-10"
-      dist: bionic

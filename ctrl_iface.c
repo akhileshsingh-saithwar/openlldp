@@ -37,9 +37,13 @@
 #include <sys/stat.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <net/if.h>
 #include <errno.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <time.h>
 #include "lldpad.h"
 #include "eloop.h"
 #include "ctrl_iface.h"
@@ -49,9 +53,18 @@
 #include "clif_msgs.h"
 #include "lldpad_status.h"
 #include "lldp/ports.h"
+#include "lldp/agent.h"
 #include "lldp_dcbx.h"
 #include "lldp_util.h"
 #include "messages.h"
+#include "lldp/states.h"
+#include "config.h"
+
+#ifndef ETH_P_LLDP
+#define ETH_P_LLDP 0x88cc
+#endif
+
+extern struct lldp_head lldp_head;
 
 struct ctrl_dst {
 	struct ctrl_dst *next;
@@ -80,6 +93,10 @@ static const struct clif_cmds cmd_tbl[] = {
 	{ DETACH_CMD,  clif_iface_detach },
 	{ LEVEL_CMD,   clif_iface_level },
 	{ PING_CMD,    clif_iface_ping },
+    { ADDPORT_CMD,    clif_iface_addport },
+    { REMOVEPORT_CMD, clif_iface_removeport },
+    { CLEARCOUNTERS_CMD, clif_clear_counters },
+    { TXINTERVAL_CMD,	clif_iface_txinterval },
 	{ UNKNOWN_CMD, clif_iface_cmd_unknown }
 };
 
@@ -114,7 +131,7 @@ int clif_iface_module(struct clif_data *clifd,
 		return cmd_invalid;
 	}
 
-	mod = find_module_by_id(&lldp_mod_head, module_id);
+	mod = find_module_by_id(&lldp_head, module_id);
 	if (mod && mod->ops && mod->ops->client_cmd)
 		return  (mod->ops->client_cmd)(clifd, from, fromlen,
 			 cmd_start, cmd_len, rbuf+strlen(rbuf), rlen);
@@ -143,6 +160,189 @@ int clif_iface_ping(UNUSED struct clif_data *clifd,
 	return 0;
 }
 
+int clif_iface_addport(UNUSED struct clif_data *clifd,
+					   UNUSED struct sockaddr_un *from,
+					   UNUSED socklen_t fromlen,
+					   char *ibuf, UNUSED int ilen,
+					   char *rbuf, int rlen)
+
+{
+	struct port *port;
+    char ifname[IFNAMSIZ];
+    int ret;
+
+    if(ibuf != NULL)
+        LLDPAD_DBG("%s:ibuf command %c and data %s\n",__func__, ibuf[0],ibuf+1);
+
+    strncpy(ifname, ibuf+1, IFNAMSIZ);
+
+    LLDPAD_INFO("%s: Received command to add interface %s\n", __func__,ifname);
+
+	//Check if the interface exist, or create the interface PORT and the Agent
+	port = add_l3_port(ifname);
+	if (!port) {
+		LLDPAD_ERR("%s: Error adding device %s\n",
+			     __func__, ifname);
+        snprintf(rbuf, rlen, "%cCreation of port %s failed", ADDPORT_CMD, ifname);
+		return cmd_failed;
+	}
+	else{
+		LLDPAD_DBG("%s: Added port %s address: %p\n", __func__, ifname, port);
+	}
+
+	//Create Agent for interface ifname
+	ret = lldp_add_l3_agent((const char *)ifname, NEAREST_BRIDGE);
+	//lldp_add_agent((const char *)ifname, NEAREST_NONTPMR_BRIDGE);
+	//lldp_add_agent((const char *)ifname, NEAREST_CUSTOMER_BRIDGE);
+
+	if (ret != 0)
+	{
+        snprintf(rbuf, rlen, "%cCreation of Agent for %s failed", ADDPORT_CMD, ifname);
+		return cmd_failed;
+	}
+
+	set_lldp_port_l3_enable(ifname, 1);
+
+	//Return OK Response
+    snprintf(rbuf, rlen, "%cAdding PORT %s success.", ADDPORT_CMD, ifname);
+
+    return 0;
+}
+
+int clif_iface_txinterval(UNUSED struct clif_data *clifd,
+					   UNUSED struct sockaddr_un *from,
+					   UNUSED socklen_t fromlen,
+					   char *ibuf, UNUSED int ilen,
+					   char *rbuf, int rlen)
+
+{
+	struct port *port;
+	struct lldp_agent *agent;
+	char txInterval[6];
+    int ret;
+
+    if(ibuf != NULL)
+        LLDPAD_DBG("%s:ibuf command %c and data %s\n",__func__, ibuf[0],ibuf+1);
+
+    strncpy(txInterval, ibuf+1, sizeof(txInterval));
+
+    LLDPAD_INFO("%s: Received command to set tx interval to:%s\n", __func__, txInterval);
+
+	for (port = porthead; port; port = port->next)
+	{
+		LIST_FOREACH(agent, &port->agent_head, entry) {
+			agent->timers.msgTxInterval = atoi(txInterval);
+		}
+	}
+
+	//Return OK Response
+    snprintf(rbuf, rlen, "%cSetting tx interval %s success.", TXINTERVAL_CMD, txInterval);
+
+    return 0;
+}
+
+int clif_iface_removeport(UNUSED struct clif_data *clifd,
+					   UNUSED struct sockaddr_un *from,
+					   UNUSED socklen_t fromlen,
+					   char *ibuf, UNUSED int ilen,
+					   char *rbuf, int rlen)
+
+{
+	int rc;
+    char ifname[IFNAMSIZ];
+    int ret;
+
+	if(ibuf != NULL)
+        LLDPAD_DBG("%s: ibuf command %c and data %s\n",__func__, ibuf[0],ibuf+1);
+
+    strncpy(ifname, ibuf+1, IFNAMSIZ);
+
+    LLDPAD_INFO("%s: Received command to remove interface %s\n", __func__,ifname);
+
+	//Check if the interface exist, or create the interface PORT and the Agent
+    rc = remove_l3_port(ifname);
+	if (rc) {
+		LLDPAD_ERR("%s: Error removing device %s\n",
+			     __func__, ifname);
+        snprintf(rbuf, rlen, "%cRemoval of port %s failed", REMOVEPORT_CMD, ifname);
+		return cmd_failed;
+	}
+
+	//Return OK Response
+    snprintf(rbuf, rlen, "%cRemoving PORT %s success.", REMOVEPORT_CMD, ifname);
+
+    return 0;
+}
+
+int clif_clear_counters(UNUSED struct clif_data *clifd,
+					   UNUSED struct sockaddr_un *from,
+					   UNUSED socklen_t fromlen,
+					   char *ibuf, UNUSED int ilen,
+					   char *rbuf, int rlen)
+
+{
+	struct port *port;
+    char ifname[IFNAMSIZ];
+    struct port * newport;
+    struct lldp_agent *agent;
+    char formattedTime[27];
+
+    int ret;
+
+    if(ibuf != NULL)
+        LLDPAD_DBG("%s:ibuf command %c and data %s\n",__func__, ibuf[0],ibuf+1);
+
+    strncpy(ifname, ibuf+1, IFNAMSIZ);
+
+    agent_get_systime_yangfmt(formattedTime);
+	LLDPAD_INFO("%s: timeBuffer: %s\n", __func__, formattedTime);
+
+	//Check if need to clear all interface or specific
+	if(strcmp(ifname, "all") == 0)
+	{
+		//Clear all counters
+		LLDPAD_INFO("%s: Clear counters for all interfaces\n", __func__);
+		for (newport = porthead; newport; newport = newport->next)
+		{
+			if (is_custom_port(newport->ifname))
+			{
+				LIST_FOREACH(agent, &newport->agent_head, entry)
+				{
+					//Clear counters
+					memset(&agent->stats, 0, sizeof(struct agentstats));
+					strcpy(&agent->stats.statsLastclear, formattedTime);
+				}
+			}
+		}
+	}
+	else
+	{
+		//Clear specific counters
+		LLDPAD_INFO("%s: Clear counters for interface %s\n", __func__, ifname);
+		for (newport = porthead; newport; newport = newport->next)
+		{
+			if (!strcmp(ifname, newport->ifname))
+				break;
+		}
+		if(newport != NULL)
+		{
+			if (is_custom_port(newport->ifname))
+			{
+				LIST_FOREACH(agent, &newport->agent_head, entry)
+				{
+					//Clear counters
+					memset(&agent->stats, 0, sizeof(struct agentstats));
+					strcpy(&agent->stats.statsLastclear, formattedTime);
+				}
+			}
+		}
+	}
+
+	//Return OK Response
+    snprintf(rbuf, rlen, "%cClear counters for interface %s success.", CLEARCOUNTERS_CMD, ifname);
+
+    return 0;
+}
 int clif_iface_attach(struct clif_data *clifd,
 		      struct sockaddr_un *from,
 		      socklen_t fromlen,
@@ -403,10 +603,70 @@ static void ctrl_iface_receive(int sock, void *eloop_ctx,
 	free(reply);
 }
 
+static void client_iface_receive(int sock, UNUSED void *eloop_ctx, UNUSED void *sock_ctx)
+{
+	char buf[MAX_CLIF_MSGBUF];
+	struct sockaddr_in from;
+	socklen_t fromlen = sizeof(from);
+	int res;
+
+	memset(&buf, 0x00, sizeof(buf));
+
+    res = recvfrom(sock, (char *)buf, sizeof(buf), 0, ( struct sockaddr *) &from, &fromlen);
+    if (res < 0) {
+        perror("recvfrom(client_iface)");
+		return;
+	}
+    LLDPAD_DBG("[%s]: %s size of received frame : %d on socket %d\n", __FILE__,__func__, res, sock);
+
+    //temporary code to print the buffer data;
+    char buf1[MAX_CLIF_MSGBUF];
+    char *p = (unsigned char *)&buf;
+    unsigned char *printStr = &buf1;
+
+    for(int i=0; i<res; i++)
+    {
+        sprintf(printStr, "%02X", *p);
+        printStr += 2;
+        p += 1;
+    }
+    LLDPAD_INFO("[%s]: %s received frame : %s socket %d\n", __FILE__, __func__, buf1, sock);
+
+    //Get the interface name length from received frame
+	int iflen = buf[0];
+
+    //Allocate memory for interface
+	char *ifname = (char *)malloc(iflen);
+	if(ifname == NULL)
+	{
+        LLDPAD_ERR("[%s]:%s Unable to allocate memory to ifname \n", __FILE__,__func__);
+		return;
+	}
+
+	memset(ifname, 0x00, iflen);
+	strncpy(ifname, (char *)&buf[1], iflen);
+    LLDPAD_INFO("[%s]:%s LLDP frame receive on interface %s \n", __FILE__,__func__, ifname);
+
+	//Check if port exist
+	struct port *port = port_find_by_ifname(ifname);
+	if (port)
+        rxReceiveClientFrame(ifname, (const u8 *)&buf[iflen+1], (res-iflen-1));
+    else
+        LLDPAD_ERR("[%s]:%s Interface %s not found in system \n", __FILE__,__func__, ifname);
+
+	free(ifname);
+}
+
 int ctrl_iface_register(struct clif_data *clifd)
 {
 	return eloop_register_read_sock(clifd->ctrl_sock, ctrl_iface_receive,
 					clifd, NULL);
+}
+
+int client_iface_register(struct client_data *Clientfd)
+{
+    return eloop_register_read_sock(Clientfd->ctrl_sock, client_iface_receive,
+            Clientfd, NULL);
 }
 
 int ctrl_iface_systemd_socket()
@@ -497,6 +757,44 @@ fail:
 	return -1;
 }
 
+int client_iface_init(struct client_data *Clientfd)
+{
+	struct sockaddr_in addr;
+	int sockfd = -1;
+	int port = 4006;
+
+    Clientfd->ctrl_sock = -1;
+
+	if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+		LLDPAD_WARN("failed to create l3 CLI socket: %m\n");
+		goto fail;
+	}
+
+	memset(&addr, 0, sizeof(addr));
+    // Filling server information
+	addr.sin_family    = AF_INET; // IPv4
+    inet_aton("127.0.0.1", (struct in_addr *)&addr.sin_addr.s_addr);
+    addr.sin_port = htons(port);
+	if (bind(sockfd, (const struct sockaddr *)&addr,
+            sizeof(addr)) < 0) {
+		if (errno == EADDRINUSE)
+			LLDPAD_WARN("Socket %d is in use.", port);
+		else
+			LLDPAD_WARN("Failed to bind socket %d.", port);
+		goto fail;
+	}
+
+	LLDPAD_INFO("Bound to socket %d\n", port);
+
+    Clientfd->ctrl_sock = sockfd;
+
+	return 0;
+
+fail:
+	if (sockfd >= 0)
+		close(sockfd);
+	return -1;
+}
 
 void ctrl_iface_deinit(struct clif_data *clifd)
 {
@@ -516,6 +814,17 @@ void ctrl_iface_deinit(struct clif_data *clifd)
 	}
 
 	free(clifd);
+}
+
+void client_iface_deinit(struct client_data *clientfd)
+{
+    if (clientfd->ctrl_sock > -1) {
+        eloop_unregister_read_sock(clientfd->ctrl_sock);
+        close(clientfd->ctrl_sock);
+        clientfd->ctrl_sock = -1;
+    }
+
+    free(clientfd);
 }
 
 int is_ctrl_listening(struct ctrl_dst *dst, u32 type)

@@ -38,6 +38,8 @@
 #include <errno.h>
 #include <signal.h>
 #include <unistd.h>
+#include <pthread.h>
+
 #include "eloop.h"
 #include "lldpad.h"
 #include "event_iface.h"
@@ -62,25 +64,24 @@
 #include "lldp/l2_packet.h"
 #include "clif.h"
 
+extern int running;
 /*
  * insert to head, so first one is last
  */
 struct lldp_module *(*register_tlv_table[])(void) = {
 	mand_register,
 	basman_register,
-	dcbx_register,
-	med_register,
+    /*dcbx_register, // data center brideing
+    med_register, //  Media Endpoint devices
 	ieee8023_register,
-	evb_register,
+    evb_register, // edge virtual Briding
 	evb22_register,
-	vdp_register,
+    vdp_register, //  VSI discovery protocol
 	vdp22_register,
 	ecp22_register,
-	ieee8021qaz_register,
+    ieee8021qaz_register, */
 	NULL,
 };
-
-struct lldp_head lldp_mod_head;
 
 char *cfg_file_name = NULL;
 bool daemonize = 0;
@@ -100,7 +101,7 @@ static void init_modules(void)
 	struct lldp_module *premod = NULL;
 	int i = 0;
 
-	LIST_INIT(&lldp_mod_head);
+	LIST_INIT(&lldp_head);
 	for (i = 0; register_tlv_table[i]; i++) {
 		module = register_tlv_table[i]();
 		if (!module)
@@ -108,7 +109,7 @@ static void init_modules(void)
 		if (premod)
 			LIST_INSERT_AFTER(premod, module, lldp);
 		else
-			LIST_INSERT_HEAD(&lldp_mod_head, module, lldp);
+			LIST_INSERT_HEAD(&lldp_head, module, lldp);
 		premod = module;
 	}
 }
@@ -117,9 +118,9 @@ void deinit_modules(void)
 {
 	struct lldp_module *module;
 
-	while (lldp_mod_head.lh_first != NULL) {
-		module = lldp_mod_head.lh_first;
-		LIST_REMOVE(lldp_mod_head.lh_first, lldp);
+	while (lldp_head.lh_first != NULL) {
+		module = lldp_head.lh_first;
+		LIST_REMOVE(lldp_head.lh_first, lldp);
 		module->ops->lldp_mod_unregister(module);
 	}
 }
@@ -167,7 +168,10 @@ static void remove_all_adapters(void)
 
 	for (port = porthead; port; port = next) {
 		next = port->next;
-		remove_port(port->ifname);
+		if(!is_custom_port(port->ifname))
+			remove_port(port->ifname);
+		else
+			remove_l3_port(port->ifname);
 	}
 
 	return;
@@ -229,6 +233,7 @@ int main(int argc, char *argv[])
 {
 	int c;
 	struct clif_data *clifd;
+    	struct client_data *Clientfd;
 	int fd = -1;
 	char buf[32];
 	int shm_remove = 0;
@@ -352,6 +357,13 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+    	Clientfd = malloc(sizeof(struct client_data));
+    	if (Clientfd == NULL) {
+        LLDPAD_ERR("failed to malloc Clientfd user data\n");
+		exit(1);
+	}
+
+
 	/* initialize lldpad configuration file */
 	if (!init_cfg()) {
 		LLDPAD_ERR("failed to initialize configuration file\n");
@@ -363,8 +375,19 @@ int main(int argc, char *argv[])
 		exit(1);
 	}
 
+    	if (eloop_init(Clientfd)) {
+        LLDPAD_ERR("failed to initialize Clientfd event loop\n");
+		exit(1);
+	}
+
 	/* initialize the client interface socket before daemonize */
 	if (ctrl_iface_init(clifd) < 0) {
+		LLDPAD_ERR("failed to register client interface\n");
+		exit(1);
+	}
+
+	/* initialize the client interface socket before daemonize */
+    	if (client_iface_init(Clientfd) < 0) {
 		LLDPAD_ERR("failed to register client interface\n");
 		exit(1);
 	}
@@ -462,13 +485,23 @@ int main(int argc, char *argv[])
 		goto out;
 	}
 
+    	if (client_iface_register(Clientfd) < 0) {
+		LLDPAD_ERR("lldpad failed to start - "
+			   "failed to register control interface\n");
+		goto out;
+	}
+
+	initNotification();
+
 	rc = 0;
 	eloop_run();
 
+	running = 0;
 	clean_lldp_agents();
 	deinit_modules();
 	remove_all_adapters();
 	ctrl_iface_deinit(clifd);  /* free's clifd */
+    client_iface_deinit(Clientfd);  /* free's Clientfd */
 	event_iface_deinit();
 	stop_lldp_agents();
 out:

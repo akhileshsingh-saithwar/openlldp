@@ -53,8 +53,6 @@ bool mibConstrInfoLLDPDU(struct port *port, struct lldp_agent *agent)
 	}
 
 	mac2str(agent->mac_addr, macstring, 30);
-	LLDPAD_DBG("%s: port %s mac %s type %i.\n", __func__, port->ifname,
-		   macstring, agent->type);
 
 	memcpy(eth.h_dest, agent->mac_addr, ETH_ALEN);
 	l2_packet_get_own_src_addr(port->l2,(u8 *)&own_addr);
@@ -71,7 +69,7 @@ bool mibConstrInfoLLDPDU(struct port *port, struct lldp_agent *agent)
 	fb_offset += sizeof(struct l2_ethhdr);
 
 	/* Generic TLV Pack */
-	LIST_FOREACH(np, &lldp_mod_head, lldp) {
+	LIST_FOREACH(np, &lldp_head, lldp) {
 		if (!np->ops || !np->ops->lldp_mod_gettlv)
 			continue;
 
@@ -83,7 +81,7 @@ bool mibConstrInfoLLDPDU(struct port *port, struct lldp_agent *agent)
 			       ptlv->tlv, ptlv->size);
 			datasize += ptlv->size;
 			fb_offset += ptlv->size;
-			free_pkd_tlv(ptlv);
+			ptlv =  free_pkd_tlv(ptlv);
 		}
 	}
 
@@ -94,7 +92,7 @@ bool mibConstrInfoLLDPDU(struct port *port, struct lldp_agent *agent)
 	memcpy(agent->tx.frameout + fb_offset, ptlv->tlv, ptlv->size);
 	datasize += ptlv->size;
 	fb_offset += ptlv->size;
-	free_pkd_tlv(ptlv);
+	ptlv =  free_pkd_tlv(ptlv);
 
 	if (datasize < ETH_MIN_DATA_LEN)
 		agent->tx.sizeout = ETH_ZLEN;
@@ -104,7 +102,7 @@ bool mibConstrInfoLLDPDU(struct port *port, struct lldp_agent *agent)
 	return true;
 
 error:
-	free_pkd_tlv(ptlv);
+	ptlv = free_pkd_tlv(ptlv);
 	if (agent->tx.frameout)
 		free(agent->tx.frameout);
 	agent->tx.frameout = NULL;
@@ -144,6 +142,7 @@ void txInitializeLLDP(struct port *port, struct lldp_agent *agent)
 	agent->tx.state  = TX_LLDP_INITIALIZE;
 	agent->tx.localChange = false;
 	agent->stats.statsFramesOutTotal = 0;
+    agent->stats.statsFramesOutErrorsTotal = 0;
 	agent->timers.reinitDelay   = REINIT_DELAY;
 	agent->timers.msgTxHold     = DEFAULT_TX_HOLD;
 	agent->timers.msgTxInterval = DEFAULT_TX_INTERVAL;
@@ -191,7 +190,6 @@ bool mibConstrShutdownLLDPDU(struct port *port, struct lldp_agent *agent)
 	}
 
 	mac2str(agent->mac_addr, macstring, 30);
-	LLDPAD_DBG("%s: mac %s.\n", __func__, macstring);
 
 	memcpy(eth.h_dest, agent->mac_addr, ETH_ALEN);
 	l2_packet_get_own_src_addr(port->l2,(u8 *)&own_addr);
@@ -206,7 +204,7 @@ bool mibConstrShutdownLLDPDU(struct port *port, struct lldp_agent *agent)
 	memcpy(agent->tx.frameout, (void *)&eth, sizeof(struct l2_ethhdr));
 	fb_offset += sizeof(struct l2_ethhdr);
 
-	np = find_module_by_id(&lldp_mod_head, LLDP_MOD_MAND);
+	np = find_module_by_id(&lldp_head, LLDP_MOD_MAND);
 	if (!np)
 		goto error;
 	if (!np->ops || !np->ops->lldp_mod_gettlv)
@@ -220,7 +218,7 @@ bool mibConstrShutdownLLDPDU(struct port *port, struct lldp_agent *agent)
 		memcpy(agent->tx.frameout + fb_offset, ptlv->tlv, ptlv->size);
 		datasize += ptlv->size;
 		fb_offset += ptlv->size;
-		free_pkd_tlv(ptlv);
+		ptlv =  free_pkd_tlv(ptlv);
 	}
 
 	/* The End TLV marks the end of the LLDP PDU */
@@ -230,7 +228,7 @@ bool mibConstrShutdownLLDPDU(struct port *port, struct lldp_agent *agent)
 	memcpy(agent->tx.frameout + fb_offset, ptlv->tlv, ptlv->size);
 	datasize += ptlv->size;
 	fb_offset += ptlv->size;
-	free_pkd_tlv(ptlv);
+	ptlv = free_pkd_tlv(ptlv);
 
 	if (datasize < ETH_MIN_DATA_LEN)
 		agent->tx.sizeout = ETH_ZLEN;
@@ -239,7 +237,7 @@ bool mibConstrShutdownLLDPDU(struct port *port, struct lldp_agent *agent)
 	return true;
 
 error:
-	free_pkd_tlv(ptlv);
+	ptlv = free_pkd_tlv(ptlv);
 	if (agent->tx.frameout)
 		free(agent->tx.frameout);
 	agent->tx.frameout = NULL;
@@ -249,10 +247,13 @@ error:
 
 u8 txFrame(struct port *port, struct lldp_agent *agent)
 {
-	l2_packet_send(port->l2, agent->mac_addr,
+    int ret = l2_packet_send(port->l2, agent->mac_addr,
 		htons(ETH_P_LLDP), agent->tx.frameout, agent->tx.sizeout);
 
-	agent->stats.statsFramesOutTotal++;
+    if(ret < 0)
+        agent->stats.statsFramesOutErrorsTotal++;
+    else
+        agent->stats.statsFramesOutTotal++;
 
 	return 0;
 }
@@ -270,7 +271,7 @@ void run_tx_sm(struct port *port, struct lldp_agent *agent)
 			process_tx_idle(agent);
 			break;
 		case TX_SHUTDOWN_FRAME:
-			process_tx_shutdown_frame(port, agent, true);
+			process_tx_shutdown_frame(port, agent);
 			break;
 		case TX_INFO_FRAME:
 			process_tx_info_frame(port, agent);
@@ -330,19 +331,8 @@ void process_tx_idle(UNUSED struct lldp_agent *agent)
 	return;
 }
 
-/* we ignore 'adminStatus' in the case that we have recently transitioned
- * to the shutdown state (in the case of the 'tx' state change) to allow
- * for transmitting the ttl==0 as required by the IEEE standard. */
-void process_tx_shutdown_frame(struct port *port, struct lldp_agent *agent,
-				bool ignoreStatus)
+void process_tx_shutdown_frame(struct port *port, struct lldp_agent *agent)
 {
-	if (agent->adminStatus != enabledRxTx &&
-	    agent->adminStatus != enabledTxOnly) {
-		if (!ignoreStatus) {
-			return;
-		}
-	}
-
 	if (agent->timers.txShutdownWhile == 0) {
 		if (mibConstrShutdownLLDPDU(port, agent))
 			txFrame(port, agent);
@@ -513,5 +503,6 @@ void tx_change_state(struct port *port, struct lldp_agent *agent, u8 newstate)
 	}
 
 	agent->tx.state = newstate;
+    LLDPAD_DBG("[%s]:agent->tx state =%d for interface %s \n",__func__,agent->tx.state,port->ifname);
 	return;
 }

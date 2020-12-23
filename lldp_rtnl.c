@@ -103,8 +103,7 @@ static void add_rtattr(struct nlmsghdr *n, int type, const void *data, int alen)
 
 	rta->rta_type = type;
 	rta->rta_len = len;
-	if (data)
-		memcpy(RTA_DATA(rta), data, alen);
+	memcpy(RTA_DATA(rta), data, alen);
 	n->nlmsg_len = NLMSG_ALIGN(n->nlmsg_len) + RTA_ALIGN(len);
 }
 

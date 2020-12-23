@@ -65,5 +65,4 @@ void log_message(int level, const char *format, ...)
 		bypass_time = strchr(format, '\n') == 0;
 	}
 	va_end(va);
-	va_end(vb);
 }

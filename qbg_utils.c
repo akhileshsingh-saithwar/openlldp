@@ -36,6 +36,7 @@
 #include "qbg_utils.h"
 
 extern int loglvl;			/* Global lldpad log level */
+extern struct lldp_head lldp_head;
 
 /*
  * hexdump_frame - print raw evb/ecp/vdp frame
@@ -72,7 +73,7 @@ void hexdump_frame(const char *ifname, char *txt, const unsigned char *buf,
  */
 int modules_notify(int id, int sender_id, char *ifname, void *data)
 {
-	struct lldp_module *mp = find_module_by_id(&lldp_mod_head, id);
+	struct lldp_module *mp = find_module_by_id(&lldp_head, id);
 	int rc = 0;
 
 	if (mp && mp->ops->lldp_mod_notify)

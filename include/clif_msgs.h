@@ -30,6 +30,7 @@
 #include <asm/types.h>
 #include "clif_sock.h"
 #include "lldpad_status.h"
+#include "lldp/ports.h"
 
 #ifndef IFNAMSIZ
 #define IFNAMSIZ	16
@@ -59,6 +60,10 @@
 #define EVENT_MSG    'E'
 #define CMD_RESPONSE 'R'
 #define CMD_REQUEST  DCB_CMD
+#define ADDPORT_CMD 'N'
+#define REMOVEPORT_CMD 'X'
+#define CLEARCOUNTERS_CMD 'Q'
+#define TXINTERVAL_CMD 'T'
 
 /* Remote Change Event ByteCode */
 #define LLDP_RCHANGE 1
@@ -99,7 +104,7 @@
 #define MAX_U8_BUF 256
 
 /* max buffer length for a clif message */
-#define MAX_CLIF_MSGBUF 4096
+#define MAX_CLIF_MSGBUF (1024 * MAX_NEIGHBORS)
 
 struct cmd {
 	__u8 cmd;
